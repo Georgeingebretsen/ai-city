@@ -4,15 +4,38 @@ from .models import COLOR_NAMES
 
 
 def distribute_tiles(grid_size: int, agent_ids: list[int]) -> list[tuple[int, int, int]]:
-    """Randomly assign all tiles to agents. Returns list of (x, y, owner_id)."""
-    all_coords = [(x, y) for x in range(grid_size) for y in range(grid_size)]
-    random.shuffle(all_coords)
+    """Give each agent a contiguous rectangular region of the grid.
 
-    assignments = []
-    n = len(agent_ids)
-    for i, (x, y) in enumerate(all_coords):
-        owner = agent_ids[i % n]
-        assignments.append((x, y, owner))
+    Recursively splits the grid along the longer axis, proportional
+    to the number of agents on each side.  For 4 agents this produces
+    exact quadrants (corners); other counts get a treemap-style layout.
+
+    Returns list of (x, y, owner_id).
+    """
+    assignments: list[tuple[int, int, int]] = []
+
+    def _assign(agents: list[int], x0: int, y0: int, x1: int, y1: int):
+        if len(agents) == 1:
+            for x in range(x0, x1):
+                for y in range(y0, y1):
+                    assignments.append((x, y, agents[0]))
+            return
+
+        mid = len(agents) // 2
+        left, right = agents[:mid], agents[mid:]
+
+        if (x1 - x0) >= (y1 - y0):
+            # Split vertically
+            split = x0 + round((x1 - x0) * len(left) / len(agents))
+            _assign(left, x0, y0, split, y1)
+            _assign(right, split, y0, x1, y1)
+        else:
+            # Split horizontally
+            split = y0 + round((y1 - y0) * len(left) / len(agents))
+            _assign(left, x0, y0, x1, split)
+            _assign(right, x0, split, x1, y1)
+
+    _assign(list(agent_ids), 0, 0, grid_size, grid_size)
     return assignments
 
 

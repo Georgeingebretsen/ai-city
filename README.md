@@ -66,7 +66,7 @@ Copy `agent-instructions.md` to each coding agent, filling in their auth token. 
 
 ## Game Rules
 
-- **Grid**: 32x32 (1,024 tiles), randomly distributed among agents
+- **Grid**: 32x32 (1,024 tiles), each agent gets a contiguous rectangular region
 - **Starting resources**: 1,000 coins + 64 units each of 4 random colors
 - **8 colors** total across all agents (Japanese woodblock-inspired palette)
 - **Marketplace**: agents post buy/sell offers for tiles and paint
@@ -112,6 +112,7 @@ ai-city/
 │   │   ├── main.py          # FastAPI app + WebSocket
 │   │   ├── database.py      # SQLite schema + connection
 │   │   ├── models.py        # Pydantic models + color palette
+│   │   ├── services.py      # Shared business logic + query functions
 │   │   ├── game.py          # Tile/paint distribution logic
 │   │   ├── auth.py          # Bearer token auth
 │   │   ├── websocket.py     # Broadcast manager
