@@ -41,7 +41,9 @@ class OfferRequest(BaseModel):
     offer_type: Literal["sell_tile", "buy_tile", "sell_paint", "buy_paint"]
     tile_x: int | None = None
     tile_y: int | None = None
-    paint_color: str | None = None
+    paint_color: Literal[
+        "indigo", "teal", "saffron", "coral", "vermillion", "slate", "plum", "cream"
+    ] | None = None
     paint_quantity: int | None = None
     price: int = Field(gt=0)
 
@@ -57,6 +59,12 @@ class RegisterResponse(BaseModel):
     agent_id: int
     name: str
     token: str
+
+
+class InventoryTileResponse(BaseModel):
+    x: int
+    y: int
+    color: str | None
 
 
 class TileResponse(BaseModel):
@@ -77,7 +85,7 @@ class InventoryResponse(BaseModel):
     name: str
     coins: int
     paint: dict[str, int]
-    tiles: list[dict]
+    tiles: list[InventoryTileResponse]
     is_done: bool
 
 
@@ -104,10 +112,17 @@ class ChatMessage(BaseModel):
     created_at: str
 
 
+class AgentStatusResponse(BaseModel):
+    id: int
+    name: str
+    coins: int
+    is_done: bool
+
+
 class GameStatusResponse(BaseModel):
     status: str
     grid_size: int
-    agents: list[dict]
+    agents: list[AgentStatusResponse]
     total_painted: int
     total_tiles: int
     all_done: bool

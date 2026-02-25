@@ -2,10 +2,26 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from ..database import get_db
 from ..game import distribute_paint, distribute_tiles
-from ..models import GameStatusResponse
+from ..models import AgentStatusResponse, GameStatusResponse
 from ..websocket import manager
 
 router = APIRouter()
+
+
+@router.post("/game/create")
+async def create_game(db=Depends(get_db)):
+    """Create a new game in waiting state so agents can register."""
+    cursor = await db.execute(
+        "SELECT id FROM games WHERE status = 'waiting' ORDER BY id DESC LIMIT 1"
+    )
+    if await cursor.fetchone():
+        raise HTTPException(status_code=400, detail="A game is already waiting for players")
+
+    cursor = await db.execute("INSERT INTO games (status) VALUES ('waiting')")
+    game_id = cursor.lastrowid
+    await db.commit()
+
+    return {"status": "waiting", "game_id": game_id}
 
 
 @router.get("/game/status", response_model=GameStatusResponse)
@@ -43,7 +59,7 @@ async def game_status(db=Depends(get_db)):
     return GameStatusResponse(
         status=game["status"],
         grid_size=game["grid_size"],
-        agents=[{"id": a["id"], "name": a["name"], "coins": a["coins"], "is_done": a["is_done"]} for a in agents],
+        agents=[AgentStatusResponse(id=a["id"], name=a["name"], coins=a["coins"], is_done=a["is_done"]) for a in agents],
         total_painted=painted,
         total_tiles=total_tiles,
         all_done=all_done and painted == total_tiles,
@@ -115,7 +131,7 @@ async def start_game(db=Depends(get_db)):
     )
 
     # Distribute paint
-    paint = distribute_paint(agent_ids)
+    paint = distribute_paint(agent_ids, grid_size)
     await db.executemany(
         "INSERT INTO paint_inventory (agent_id, color, quantity) VALUES (?, ?, ?)",
         paint,

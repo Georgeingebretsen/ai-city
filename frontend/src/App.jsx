@@ -26,21 +26,27 @@ export default function App() {
         setTiles(data.tiles);
         setGridSize(data.grid_size);
       }
-    } catch {}
+    } catch (e) {
+      console.error("Failed to fetch grid:", e);
+    }
   }, []);
 
   const fetchMarketplace = useCallback(async () => {
     try {
       const res = await fetch(`${API_BASE}/marketplace/public`);
       if (res.ok) setOffers(await res.json());
-    } catch {}
+    } catch (e) {
+      console.error("Failed to fetch marketplace:", e);
+    }
   }, []);
 
   const fetchChat = useCallback(async () => {
     try {
       const res = await fetch(`${API_BASE}/chat/public`);
       if (res.ok) setMessages(await res.json());
-    } catch {}
+    } catch (e) {
+      console.error("Failed to fetch chat:", e);
+    }
   }, []);
 
   const fetchInventories = useCallback(async () => {
@@ -52,7 +58,9 @@ export default function App() {
         for (const inv of data) map[inv.agent_id] = inv;
         setInventories(map);
       }
-    } catch {}
+    } catch (e) {
+      console.error("Failed to fetch inventories:", e);
+    }
   }, []);
 
   const fetchAll = useCallback(async () => {
@@ -136,7 +144,7 @@ export default function App() {
                 agent: event.agent,
                 agent_id: event.agent_id,
                 content: event.content,
-                created_at: event.timestamp,
+                created_at: event.created_at,
               },
             ];
           });

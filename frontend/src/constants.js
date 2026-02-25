@@ -15,5 +15,5 @@ export function agentColor(index) {
   return `hsl(${AGENT_HUES[index % AGENT_HUES.length]}, 55%, 55%)`;
 }
 
-export const API_BASE = "http://localhost:8000";
-export const WS_URL = "ws://localhost:8000/ws";
+export const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
+export const WS_URL = import.meta.env.VITE_WS_URL ?? "ws://localhost:8000/ws";

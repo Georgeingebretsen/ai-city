@@ -1,3 +1,4 @@
+import math
 import random
 
 from .models import COLOR_NAMES
@@ -39,14 +40,17 @@ def distribute_tiles(grid_size: int, agent_ids: list[int]) -> list[tuple[int, in
     return assignments
 
 
-def distribute_paint(agent_ids: list[int]) -> list[tuple[int, str, int]]:
-    """Give each agent 64 units each of 4 random colors.
+def distribute_paint(agent_ids: list[int], grid_size: int) -> list[tuple[int, str, int]]:
+    """Give each agent 4 random colors with enough total paint to cover the grid.
 
-    Ensures all 8 colors are covered across agents.
+    Quantity per color is calculated so that total paint across all agents
+    exactly covers the grid (ceiling division ensures no shortfall with
+    odd agent counts). Ensures all 8 colors are covered across agents.
     Returns list of (agent_id, color, quantity).
     """
     n = len(agent_ids)
     colors = list(COLOR_NAMES)
+    quantity = math.ceil(grid_size ** 2 / (n * 4))
 
     # First pass: ensure coverage — round-robin assign colors to agents
     agent_colors: dict[int, set[str]] = {aid: set() for aid in agent_ids}
@@ -66,5 +70,5 @@ def distribute_paint(agent_ids: list[int]) -> list[tuple[int, str, int]]:
     result = []
     for aid in agent_ids:
         for color in agent_colors[aid]:
-            result.append((aid, color, 64))
+            result.append((aid, color, quantity))
     return result

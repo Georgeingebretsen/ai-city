@@ -46,7 +46,7 @@ async def post_chat(req: ChatRequest, agent: dict = Depends(get_current_agent), 
             "agent": agent["name"],
             "agent_id": agent["id"],
             "content": req.content,
-            "timestamp": msg.created_at,
+            "created_at": msg.created_at,
         }
     )
 

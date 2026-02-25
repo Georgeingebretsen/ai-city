@@ -29,6 +29,11 @@ async def revoke_done(db, agent: dict):
 async def available_coins(db, agent: dict) -> int:
     """Agent's coins minus coins locked in open buy offers."""
     cursor = await db.execute(
+        "SELECT coins FROM agents WHERE id = ?", (agent["id"],)
+    )
+    coins = (await cursor.fetchone())["coins"]
+
+    cursor = await db.execute(
         """SELECT COALESCE(SUM(price), 0) as locked
            FROM offers
            WHERE agent_id = ? AND game_id = ? AND status = 'open'
@@ -36,7 +41,7 @@ async def available_coins(db, agent: dict) -> int:
         (agent["id"], agent["game_id"]),
     )
     locked = (await cursor.fetchone())["locked"]
-    return agent["coins"] - locked
+    return coins - locked
 
 
 async def available_paint(db, agent: dict, color: str) -> int:

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from ..auth import get_current_agent
 from ..database import get_db
-from ..models import COLOR_NAMES, OfferRequest, OfferResponse
+from ..models import OfferRequest, OfferResponse
 from ..services import (
     available_coins,
     available_paint,
@@ -68,8 +68,6 @@ async def post_offer(req: OfferRequest, agent: dict = Depends(get_current_agent)
     elif req.offer_type == "sell_paint":
         if not req.paint_color or not req.paint_quantity:
             raise HTTPException(status_code=400, detail="paint_color and paint_quantity required")
-        if req.paint_color not in COLOR_NAMES:
-            raise HTTPException(status_code=400, detail=f"Invalid color. Must be one of: {COLOR_NAMES}")
         if req.paint_quantity < 1:
             raise HTTPException(status_code=400, detail="paint_quantity must be positive")
         # Check available paint (minus locked)
@@ -80,8 +78,6 @@ async def post_offer(req: OfferRequest, agent: dict = Depends(get_current_agent)
     elif req.offer_type == "buy_paint":
         if not req.paint_color or not req.paint_quantity:
             raise HTTPException(status_code=400, detail="paint_color and paint_quantity required")
-        if req.paint_color not in COLOR_NAMES:
-            raise HTTPException(status_code=400, detail=f"Invalid color. Must be one of: {COLOR_NAMES}")
         if req.paint_quantity < 1:
             raise HTTPException(status_code=400, detail="paint_quantity must be positive")
         # Lock coins

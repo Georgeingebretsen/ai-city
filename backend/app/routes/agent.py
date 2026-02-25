@@ -1,11 +1,12 @@
 import secrets
 
+import aiosqlite
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..auth import get_current_agent
 from ..database import get_db
 from ..models import InventoryResponse, RegisterRequest, RegisterResponse
-from ..services import fetch_agent_inventory
+from ..services import fetch_agent_inventory, require_running_game
 from ..websocket import manager
 
 router = APIRouter()
@@ -13,18 +14,14 @@ router = APIRouter()
 
 @router.post("/register", response_model=RegisterResponse)
 async def register(req: RegisterRequest, db=Depends(get_db)):
-    # Get or create a waiting game
+    # Find a waiting game to register into
     cursor = await db.execute(
         "SELECT id FROM games WHERE status = 'waiting' ORDER BY id DESC LIMIT 1"
     )
     game = await cursor.fetchone()
     if not game:
-        cursor = await db.execute(
-            "INSERT INTO games (status) VALUES ('waiting')"
-        )
-        game_id = cursor.lastrowid
-    else:
-        game_id = dict(game)["id"]
+        raise HTTPException(status_code=400, detail="No game waiting for players — create one first with POST /game/create")
+    game_id = dict(game)["id"]
 
     # Check agent limit (max 8)
     cursor = await db.execute(
@@ -42,7 +39,7 @@ async def register(req: RegisterRequest, db=Depends(get_db)):
         )
         agent_id = cursor.lastrowid
         await db.commit()
-    except Exception:
+    except aiosqlite.IntegrityError:
         raise HTTPException(
             status_code=409, detail=f"Agent name '{req.name}' already taken"
         )
@@ -71,19 +68,26 @@ async def delete_agent(agent_id: int, db=Depends(get_db)):
 
 @router.get("/inventory", response_model=InventoryResponse)
 async def get_inventory(agent: dict = Depends(get_current_agent), db=Depends(get_db)):
+    # Re-fetch agent to get fresh coins/is_done (auth snapshot may be stale)
+    cursor = await db.execute(
+        "SELECT coins, is_done FROM agents WHERE id = ?", (agent["id"],)
+    )
+    fresh = dict(await cursor.fetchone())
     paint, tiles = await fetch_agent_inventory(db, agent["id"], agent["game_id"])
     return InventoryResponse(
         agent_id=agent["id"],
         name=agent["name"],
-        coins=agent["coins"],
+        coins=fresh["coins"],
         paint=paint,
         tiles=tiles,
-        is_done=agent["is_done"],
+        is_done=fresh["is_done"],
     )
 
 
 @router.post("/done")
 async def declare_done(agent: dict = Depends(get_current_agent), db=Depends(get_db)):
+    await require_running_game(db, agent["game_id"])
+
     await db.execute(
         "UPDATE agents SET is_done = TRUE WHERE id = ?", (agent["id"],)
     )

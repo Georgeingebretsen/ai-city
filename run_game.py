@@ -2,17 +2,22 @@
 """
 AI City Game Runner
 
-Registers agents, starts the game, and spawns Claude CLI processes — all in one command.
+Registers agents, starts the game, and spawns AI coding agent processes — all in one command.
 
 Usage:
-    python run_game.py                    # 4 agents, default names
-    python run_game.py --agents 2         # 2 agents
-    python run_game.py --names Ada,Grace  # custom names
+    python run_game.py                              # 4 agents, default names, Claude
+    python run_game.py --agents 2                   # 2 agents
+    python run_game.py --names Ada,Grace            # custom names
+    python run_game.py --provider gemini            # use Gemini for all agents
+    python run_game.py --providers claude,codex     # per-agent providers
+    python run_game.py --cmd "my-agent --prompt {prompt}"  # any custom agent CLI
 """
 
 import argparse
 import asyncio
 import json
+import shlex
+import shutil
 import signal
 import sys
 import urllib.error
@@ -20,6 +25,18 @@ import urllib.request
 from pathlib import Path
 
 CONFIG = {"base_url": "http://localhost:8000"}
+
+PROVIDERS = {
+    "claude": {
+        "cmd": ["claude", "-p", "{prompt}", "--verbose", "--dangerously-skip-permissions"],
+    },
+    "codex": {
+        "cmd": ["codex", "--quiet", "--approval-mode", "full-auto", "{prompt}"],
+    },
+    "gemini": {
+        "cmd": ["gemini", "--yolo", "-p", "{prompt}"],
+    },
+}
 
 DEFAULT_NAMES = ["Ada", "Grace", "Rosalind", "Marie", "Emmy", "Sophie", "Hypatia", "Maryam"]
 
@@ -69,14 +86,20 @@ def register_agents(names: list[str]) -> list[dict]:
     return agents
 
 
+def create_game():
+    """Create a new waiting game via the backend API."""
+    api_request("/game/create", method="POST")
+
+
 def start_game():
     """Start the game via the backend API."""
     api_request("/game/start", method="POST")
 
 
 def build_prompt(template: str, agent: dict) -> str:
-    """Fill in the agent-instructions template with the agent's token."""
+    """Fill in the agent-instructions template with the agent's credentials."""
     prompt = template.replace("<YOUR_TOKEN_HERE>", agent["token"])
+    prompt = prompt.replace("<BASE_URL_HERE>", CONFIG["base_url"])
     return prompt
 
 
@@ -91,15 +114,16 @@ async def stream_output(stream, prefix: str):
             print(f"{prefix} {text}")
 
 
-async def run_agent(name: str, prompt: str, color: str, semaphore: asyncio.Semaphore):
-    """Spawn a claude CLI process for one agent."""
+async def run_agent(name: str, prompt: str, color: str, semaphore: asyncio.Semaphore, cmd_template: list[str]):
+    """Spawn an AI coding agent CLI process."""
     prefix = f"{color}{BOLD}[{name}]{RESET}"
+    cmd = [arg.replace("{prompt}", prompt) for arg in cmd_template]
 
     # Stagger agent launches slightly to avoid overwhelming the API
     async with semaphore:
-        print(f"{prefix} Starting claude process...")
+        print(f"{prefix} Starting process...")
         proc = await asyncio.create_subprocess_exec(
-            "claude", "-p", prompt, "--verbose", "--dangerously-skip-permissions",
+            *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -120,6 +144,14 @@ async def main():
     parser.add_argument("--agents", "-n", type=int, default=4, help="Number of agents (default: 4, max: 8)")
     parser.add_argument("--names", type=str, default=None, help="Comma-separated agent names (e.g. Ada,Grace)")
     parser.add_argument("--base-url", type=str, default=CONFIG["base_url"], help="Backend URL (default: http://localhost:8000)")
+    parser.add_argument("--provider", "-P", type=str, default="claude",
+                        choices=PROVIDERS.keys(),
+                        help="Default AI provider for all agents (default: claude)")
+    parser.add_argument("--providers", type=str, default=None,
+                        help="Comma-separated per-agent providers (e.g. claude,codex,gemini). Overrides --provider.")
+    parser.add_argument("--cmd", type=str, default=None,
+                        help="Custom command template for all agents (e.g. \"my-agent --prompt {prompt}\"). "
+                             "Overrides --provider and --providers. Must include {prompt}.")
     args = parser.parse_args()
 
     CONFIG["base_url"] = args.base_url
@@ -134,6 +166,40 @@ async def main():
         print("Error: Maximum 8 agents allowed", file=sys.stderr)
         sys.exit(1)
 
+    # Resolve command templates per agent
+    if args.cmd:
+        if "{prompt}" not in args.cmd:
+            print("Error: --cmd must include {prompt} placeholder", file=sys.stderr)
+            sys.exit(1)
+        cmd_template = shlex.split(args.cmd)
+        if not shutil.which(cmd_template[0]):
+            print(f"Error: '{cmd_template[0]}' not found. Make sure your agent CLI is installed.", file=sys.stderr)
+            sys.exit(1)
+        cmd_templates = [cmd_template] * len(names)
+        provider_labels = [args.cmd] * len(names)
+    else:
+        if args.providers:
+            provider_list = [p.strip() for p in args.providers.split(",")]
+            for p in provider_list:
+                if p not in PROVIDERS:
+                    print(f"Error: Unknown provider '{p}'. Choose from: {', '.join(PROVIDERS)}", file=sys.stderr)
+                    sys.exit(1)
+            if len(provider_list) != len(names):
+                print(f"Error: --providers has {len(provider_list)} entries but there are {len(names)} agents", file=sys.stderr)
+                sys.exit(1)
+        else:
+            provider_list = [args.provider] * len(names)
+
+        # Check that all required provider CLIs are installed
+        for provider in set(provider_list):
+            cli = PROVIDERS[provider]["cmd"][0]
+            if not shutil.which(cli):
+                print(f"Error: '{cli}' not found. Install the {provider} CLI first.", file=sys.stderr)
+                sys.exit(1)
+
+        cmd_templates = [PROVIDERS[p]["cmd"] for p in provider_list]
+        provider_labels = provider_list
+
     # Load agent instructions template
     script_dir = Path(__file__).parent
     instructions_path = script_dir / "agent-instructions.md"
@@ -143,7 +209,7 @@ async def main():
     template = instructions_path.read_text()
 
     # Step 1: Check backend
-    print(f"\n{BOLD}[1/4] Checking backend at {CONFIG['base_url']}...{RESET}", flush=True)
+    print(f"\n{BOLD}[1/5] Checking backend at {CONFIG['base_url']}...{RESET}", flush=True)
     if not check_backend():
         print(f"Error: Backend not reachable at {CONFIG['base_url']}", file=sys.stderr)
         print("  Start it with: cd backend && uv run uvicorn app.main:app --reload --port 8000", file=sys.stderr)
@@ -151,12 +217,17 @@ async def main():
     print("  Backend is up!")
 
     # Step 2: Reset any previous game
-    print(f"\n{BOLD}[2/4] Resetting previous game...{RESET}")
+    print(f"\n{BOLD}[2/5] Resetting previous game...{RESET}")
     api_request("/game/reset", method="POST")
     print("  Clean slate!")
 
-    # Step 3: Register agents
-    print(f"\n{BOLD}[3/4] Registering {len(names)} agents...{RESET}")
+    # Step 3: Create a new game
+    print(f"\n{BOLD}[3/5] Creating new game...{RESET}")
+    create_game()
+    print("  Game created!")
+
+    # Step 4: Register agents
+    print(f"\n{BOLD}[4/5] Registering {len(names)} agents...{RESET}")
     try:
         agents = register_agents(names)
     except urllib.error.HTTPError as e:
@@ -164,8 +235,8 @@ async def main():
         print(f"Error registering agents: {e.code} {body}", file=sys.stderr)
         sys.exit(1)
 
-    # Step 4: Start the game
-    print(f"\n{BOLD}[4/4] Starting the game...{RESET}")
+    # Step 5: Start the game
+    print(f"\n{BOLD}[5/5] Starting the game...{RESET}")
     try:
         start_game()
     except urllib.error.HTTPError as e:
@@ -178,16 +249,22 @@ async def main():
     prompts = [build_prompt(template, agent) for agent in agents]
 
     # Launch agents
-    print(f"\n{BOLD}Launching {len(agents)} Claude agents...{RESET}")
-    print(f"  Watch the game at http://localhost:5173")
+    unique_labels = sorted(set(provider_labels))
+    if len(unique_labels) == 1:
+        print(f"\n{BOLD}Launching {len(agents)} agents ({unique_labels[0]})...{RESET}")
+    else:
+        print(f"\n{BOLD}Launching {len(agents)} agents...{RESET}")
+    for agent, label in zip(agents, provider_labels):
+        print(f"  {agent['name']} → {label}")
+    print(f"\n  Watch the game at http://localhost:5173")
     print(f"  Press Ctrl+C to stop all agents\n")
 
     # Use a semaphore to stagger launches (2 at a time)
     semaphore = asyncio.Semaphore(2)
     tasks = []
-    for i, (agent, prompt) in enumerate(zip(agents, prompts)):
+    for i, (agent, prompt, cmd_template) in enumerate(zip(agents, prompts, cmd_templates)):
         color = COLORS[i % len(COLORS)]
-        task = asyncio.create_task(run_agent(agent["name"], prompt, color, semaphore))
+        task = asyncio.create_task(run_agent(agent["name"], prompt, color, semaphore, cmd_template))
         tasks.append(task)
 
     # Handle graceful shutdown
